@@ -104,14 +104,14 @@ object DockerContainer {
       params
 
     // Enable GPU support if it's RL training
-    name match {
-      case Some(n) =>
-        if (n.contains("ptest")) {
-          args = Seq("--gpus", "all") ++ args
-        }
-
-      case None =>
-    }
+//    name match {
+//      case Some(n) =>
+//        if (n.contains("ptest")) {
+//          args = Seq("--gpus", "all") ++ args
+//        }
+//
+//      case None =>
+//    }
 
     val registryConfigUrl = registryConfig.map(_.url).getOrElse("")
     val imageToUse = image.merge.resolveImageName(Some(registryConfigUrl))
