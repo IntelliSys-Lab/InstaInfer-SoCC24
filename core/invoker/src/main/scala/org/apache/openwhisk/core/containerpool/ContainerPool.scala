@@ -553,6 +553,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
         //update redis
         redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+        redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
 
 
@@ -685,6 +686,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
                 //update redis
                 redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+                redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
               }
               else {
                 logging.info(
@@ -747,6 +749,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
         //update redis
         redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+        redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
 
         //等1~3秒再执行下面的代码：
@@ -775,6 +778,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
               //update redis
               redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+              redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
             }
           }
         }
@@ -829,6 +833,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
               //update redis
               redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+              redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
               logging.info(
                 this,
@@ -863,6 +868,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
             //update redis
             redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+            redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
           }
         }
         // if container was in free pool, it may have been processing (but under capacity), so there is capacity to accept another job request
@@ -899,6 +905,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
             //update redis
             redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+            redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
             //然后，在XX分钟后，如果sharedPool还有这个容器，且上面还有这个model，则offload
             //val delayRun2 = Executors.newSingleThreadScheduledExecutor()
@@ -920,6 +927,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
                     //update redis
                     redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+                    redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
                   } else {
                     logging.info(
                       this,
@@ -947,6 +955,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
           PreloadTable_New -= container_remove
           //update redis
           redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
+          redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
         }
       }
 
