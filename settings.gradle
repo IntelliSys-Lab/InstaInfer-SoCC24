@@ -55,7 +55,7 @@ include 'core:controller'
 include 'core:scheduler'
 include 'core:invoker'
 include 'core:cosmosdb:cache-invalidator'
-include 'core:standalone'
+//include 'core:standalone'
 include 'core:monitoring:user-events'
 
 //include 'tests'
