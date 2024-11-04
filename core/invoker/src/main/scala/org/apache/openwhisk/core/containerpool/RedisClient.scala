@@ -20,7 +20,7 @@ import scala.util.Try
 
 
 class RedisClient(
-                   host: String = "127.0.0.1",  //改成 controller 节点的 ip 地址
+                   host: String = "172.17.0.1",  //改成 controller 节点的 ip 地址
                    port: Int = 6379,
                    password: String = "openwhisk",
                    database: Int = 0,
