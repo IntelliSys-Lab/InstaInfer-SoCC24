@@ -35,7 +35,8 @@ sudo apt-get -y update
 sudo apt-get --no-install-recommends -y install linux-image-extra-virtual
 
 # DOCKER
-sudo apt-get install -y docker-ce=5:20.10.17~3-0~ubuntu-$(lsb_release -cs) docker-ce-cli=5:20.10.17~3-0~ubuntu-$(lsb_release -cs) containerd.io
+
+sudo apt-get install -y docker-ce=18.06.3~ce~3-0~ubuntu containerd.io
 sudo apt-mark hold docker-ce
 
 # enable (security - use 127.0.0.1)
