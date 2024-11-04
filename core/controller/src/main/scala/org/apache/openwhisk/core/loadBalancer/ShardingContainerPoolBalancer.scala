@@ -238,7 +238,7 @@ object histogram{
             keepAliveWindow = i
           }
         }
-        keepAliveWindow = 10
+        keepAliveWindow = 1
         preLoadWindow = 0.toInt
         offLoadWindow = 10.toInt
         Lambda = 0.toDouble
