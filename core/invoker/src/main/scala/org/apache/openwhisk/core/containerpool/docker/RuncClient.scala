@@ -61,8 +61,10 @@ class RuncClient(timeouts: RuncClientTimeouts = loadConfigOrThrow[RuncClientTime
   def pause(id: ContainerId)(implicit transid: TransactionId): Future[Unit] =
     runCmd(Seq("pause", id.asString), timeouts.pause).map(_ => ())
 
-  def resume(id: ContainerId)(implicit transid: TransactionId): Future[Unit] =
-    runCmd(Seq("resume", id.asString), timeouts.resume).map(_ => ())
+  def resume(id: ContainerId)(implicit transid: TransactionId): Future[Unit] = {
+    runCmd(Seq("unpause", id.asString), timeouts.resume).map(_ => ())
+    //在新版本的 docker 中，不存在 docker-runc 和 resume，取而代之的是 docker pause & unpause
+  }
 
   private def runCmd(args: Seq[String], timeout: Duration)(implicit transid: TransactionId): Future[String] = {
     val cmd = runcCmd ++ args
