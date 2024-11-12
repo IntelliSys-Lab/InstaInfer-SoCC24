@@ -34,7 +34,7 @@ This demo hosts all InstaInfer’s components on a single node.
 1. Download the github repo.
 
 ```
-git clone <https://github.com/IntelliSys-Lab/InstaInfer-SoCC24>
+git clone https://github.com/IntelliSys-Lab/InstaInfer-SoCC24.git
 ```
 
 2. Set up OpenWhisk Environment.
