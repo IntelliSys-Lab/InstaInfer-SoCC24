@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Ensuring the script is executed with root privileges
+set -e  # Exit immediately if a command exits with a non-zero status.
 
 # Build and Ansible deploy
 echo "Starting Build and Deployment Process..."
@@ -24,7 +24,7 @@ sudo ansible-playbook -i environments/local postdeploy.yml
 sudo echo 'export PATH=$PATH:~/InstaInfer-SoCC24/bin' | tee -a ~/.bashrc
 
 # Reload .bashrc to update PATH
-sudo  source ~/.bashrc
+source ~/.bashrc
 
 # Set wsk CLI properties
 cd ..

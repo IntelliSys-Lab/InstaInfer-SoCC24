@@ -21,4 +21,4 @@ set -x
 
 sudo apt-get install -y python3-pip
 sudo pip install argcomplete couchdb 
-sudo pip install redis
+sudo pip install redis pandas

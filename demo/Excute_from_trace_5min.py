@@ -44,4 +44,4 @@ for min in range(1, 6):
                 os.system(command)
                 n_list[i] += 1
 
-        time.sleep(1)  # 每秒循环一次
+        time.sleep(1)  # Loop once every second.
