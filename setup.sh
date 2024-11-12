@@ -1,37 +1,33 @@
 #!/bin/bash
 
 # Ensuring the script is executed with root privileges
-if [ "$(id -u)" != "0" ]; then
-   echo "This script must be run as root" 1>&2
-   exit 1
-fi
 
 # Build and Ansible deploy
 echo "Starting Build and Deployment Process..."
 
-cd ~/InstaInfer-SoCC24/ansible
+cd ansible
 ENVIRONMENT=local
-ansible-playbook -i environments/local setup.yml
+sudo ansible-playbook -i environments/local setup.yml
 
-cd ~/InstaInfer-SoCC24
-./gradlew distDocker
+cd ..
+sudo ./gradlew distDocker
 
-cd ~/InstaInfer-SoCC24/ansible
-ansible-playbook -i environments/local couchdb.yml
-ansible-playbook -i environments/local initdb.yml
-ansible-playbook -i environments/local wipe.yml
-ansible-playbook -i environments/local apigateway.yml
-ansible-playbook -i environments/local openwhisk.yml
-ansible-playbook -i environments/local postdeploy.yml
+cd ansible
+sudo ansible-playbook -i environments/local couchdb.yml
+sudo ansible-playbook -i environments/local initdb.yml
+sudo ansible-playbook -i environments/local wipe.yml
+sudo ansible-playbook -i environments/local apigateway.yml
+sudo ansible-playbook -i environments/local openwhisk.yml
+sudo ansible-playbook -i environments/local postdeploy.yml
 
 # Append the OpenWhisk bin directory to the PATH in .bashrc
-echo 'export PATH=$PATH:~/InstaInfer-SoCC24/bin' | tee -a ~/.bashrc
+sudo echo 'export PATH=$PATH:~/InstaInfer-SoCC24/bin' | tee -a ~/.bashrc
 
 # Reload .bashrc to update PATH
-source ~/.bashrc
+sudo  source ~/.bashrc
 
 # Set wsk CLI properties
-cd ~/InstaInfer-SoCC24
+cd ..
 wsk property set --apihost https://172.17.0.1:443
 wsk property set --auth "$(cat ./ansible/files/auth.guest)"
 

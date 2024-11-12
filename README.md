@@ -48,6 +48,7 @@ sudo ./all.sh
 
 ```
 cd ~/InstaInfer-SoCC24
+sudo chmod +x setup.sh
 sudo ./setup.sh
 ```
 
