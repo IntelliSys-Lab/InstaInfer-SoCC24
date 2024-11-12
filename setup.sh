@@ -9,14 +9,14 @@ fi
 # Build and Ansible deploy
 echo "Starting Build and Deployment Process..."
 
-cd ~/openwhisk/ansible
+cd ~/InstaInfer-SoCC24/ansible
 ENVIRONMENT=local
 ansible-playbook -i environments/local setup.yml
 
-cd ~/openwhisk
+cd ~/InstaInfer-SoCC24
 ./gradlew distDocker
 
-cd ~/openwhisk/ansible
+cd ~/InstaInfer-SoCC24/ansible
 ansible-playbook -i environments/local couchdb.yml
 ansible-playbook -i environments/local initdb.yml
 ansible-playbook -i environments/local wipe.yml
@@ -25,13 +25,13 @@ ansible-playbook -i environments/local openwhisk.yml
 ansible-playbook -i environments/local postdeploy.yml
 
 # Append the OpenWhisk bin directory to the PATH in .bashrc
-echo 'export PATH=$PATH:~/openwhisk/bin' | tee -a ~/.bashrc
+echo 'export PATH=$PATH:~/InstaInfer-SoCC24/bin' | tee -a ~/.bashrc
 
 # Reload .bashrc to update PATH
 source ~/.bashrc
 
 # Set wsk CLI properties
-cd ~/openwhisk
+cd ~/InstaInfer-SoCC24
 wsk property set --apihost https://172.17.0.1:443
 wsk property set --auth "$(cat ./ansible/files/auth.guest)"
 
