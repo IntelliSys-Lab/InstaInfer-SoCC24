@@ -151,7 +151,6 @@ import scala.jdk.CollectionConverters.mapAsScalaMapConverter
  */
 
 object histogram{
-  //初始化histogram
   val NumberofActions = 1000
   val Bounds = 240 //histogram的上界是4小时（240分钟）
   var histogram = new Array[ArrayBuffer[Int]](NumberofActions) //共有1000个action
@@ -160,16 +159,17 @@ object histogram{
   var idleTimeTotalNumber = new ArrayBuffer[Int](NumberofActions) //每个action对应一个元素，用于该action被调用的总次数
   var Window = scala.collection.mutable.Map("ActionrName" -> (0,10,0,10,0.toDouble)) //保存每个action的4个window
 
-  //增加一个array deltaT，用来统计泊松分布所需的：每次的间隔时间 /delta t_i
+
+  //Record delta t_i for Poisson Distribution
   var deltaT = new Array[ArrayBuffer[Int]](NumberofActions) //共有1000个action
   var PossionPara = scala.collection.mutable.Map("ActionrName" -> (0.toDouble,10)) //保存每个action的泊松分布参数：lambda, i
 
-  //0号位元素不使用，仅占用
+
   actionName.append("StartRecordingAction")
   idleTime.append((System.currentTimeMillis()/60000).toInt)
   idleTimeTotalNumber.append(0)
 
-  //初始化histogram：共有1000个arraybuffer，每个buffer含有240个元素（对应IT从0~239）
+  //Init Histogram
   def initializeHistogram(): Unit = {
     if (histogram(1)==null) {
       for (i <- 0 until histogram.length) {
@@ -178,7 +178,7 @@ object histogram{
           histogram(i).append(0)
         }}}}
 
-  //初始化Possion Process：共有1000个arraybuffer，每个buffer含有240个元素（对应IT从0~239）
+  //Init Possion Process
   def initializePossionProcess(): Unit = {
     if (deltaT(1) == null) {
       for (i <- 0 until deltaT.length) {
@@ -194,6 +194,7 @@ object histogram{
 
 
   //Histogram Policy
+  //Please refer to Histogram (serverless in the wild) and Pagurus (help rather than recycle)'s pre-warming policy for details
   def HistogramPolicy(actionMetaData: ExecutableWhiskActionMetaData): (Int, Int, Int, Int,Double) = {
     println("This is action:  " + actionMetaData.fullyQualifiedName(false) + "     's histogram（New policy 3.6）")
     val actionType = RecordNewAction(actionMetaData)
@@ -202,7 +203,6 @@ object histogram{
     if(idletime<Bounds){
       idleTime(actionType) = (System.currentTimeMillis() / 60000).toInt
 
-      //初始化pre-warm和keep-alive window
       var preWarmWindow = 100000
       var keepAliveWindow = 0
       var preLoadWindow = 100000
@@ -210,27 +210,16 @@ object histogram{
       var Lambda = 0.toDouble
 
 
-      //下面记录histogram二维数组的第actionType个arraybuffer，作为该action的histogram。
+
       histogram(actionType)(idletime) = histogram(actionType)(idletime) + 1
-      idleTimeTotalNumber(actionType) = idleTimeTotalNumber(actionType) + 1 //该action总被调用次数+1
-
-      //idleTime就是delta t，所以直接记录即可.同时可以统计，这是action的第几次调用，得到i [i = idleTimeTotalNumber(actionType)]
-      deltaT(actionType)(idleTimeTotalNumber(actionType)) = idletime  //如果是第一次调用，那i=1,此时delta t =0,所以第一个元素的值一定是0
+      idleTimeTotalNumber(actionType) = idleTimeTotalNumber(actionType) + 1
 
 
-      // ...
-      //省略一部分代码
-//      for (i <- 0 until idleTimeTotalNumber(actionType)) {
-//        sum = sum + deltaT(actionType)(i)
-//      }
-//      if (sum>0) {
-//        lambda = (idleTimeTotalNumber(actionType) / sum).toDouble
-//      }
-//      println("PossionPara: " + lambda + " ;" + idleTimeTotalNumber(actionType))
-//      PossionPara(actionMetaData.fullyQualifiedName(false).toString) = (lambda, idleTimeTotalNumber(actionType))
+      deltaT(actionType)(idleTimeTotalNumber(actionType)) = idletime
 
-      //下面计算pre-warn和keep-alive window
-      if (idleTimeTotalNumber(actionType) <= 5) { //次数<=10时，使用第二种policy(a standard keep-alive approach):
+
+
+      if (idleTimeTotalNumber(actionType) <= 10) {
         //pre-warming window = 0; keep-alive window = range of the histogram
         preWarmWindow = 0
         for (i <- 0 until histogram(actionType).length) {
@@ -243,8 +232,7 @@ object histogram{
         offLoadWindow = 10.toInt
         Lambda = 0.toDouble
       }
-      if (idleTimeTotalNumber(actionType) > 5) { //次数>10时，使用第一种policy(Range-limited histogram):
-        //pre-warming window = 5%*总数; keep-alive window = 99%*总数
+      if (idleTimeTotalNumber(actionType) > 10) {
         var preWarmFlag = (idleTimeTotalNumber(actionType).toInt * 0.2).toInt + 1 //第5%个非0元素，其对应的总数就是pre-warm-window. 注意toInt的使用！不然会有小数
         var flagPre = 0
         var flagPrePrevious = 0
@@ -258,21 +246,20 @@ object histogram{
           if (histogram(actionType)(i) > 0) {
             flagPrePrevious = flagPre
             flagKeepPrevious = flagKeep
-            flagPre = flagPre + histogram(actionType)(i) //每个IT有几个值，就要加几
+            flagPre = flagPre + histogram(actionType)(i)
             flagKeep = flagKeep + histogram(actionType)(i)
 
-            if (flagPre >= preWarmFlag & flagPrePrevious < preWarmFlag) { //找到flagPre第一次超过preWarmFlag（5%分位）的时刻，即
-              //上一次还没超过，这一次超过
+            if (flagPre >= preWarmFlag & flagPrePrevious < preWarmFlag) {
               preWarmWindow = i
             }
-            if (flagKeep >= keepAliveFlag & flagKeepPrevious < keepAliveFlag) { //找到flagKeep第一次超过keepAliveFlag（99%分位）的时刻，即
-              //上一次还没超过，这一次超过
+            if (flagKeep >= keepAliveFlag & flagKeepPrevious < keepAliveFlag) {
               keepAliveWindow = i
             }
           }
         }
 
-        //下面计算lambda
+
+        //Get Pre-load and Off-load Window
         var sum = 0
         var lambda = 0.toDouble
 
@@ -303,16 +290,14 @@ object histogram{
         //println("PossionPara: " + optimalLambda + " ;" + idleTimeTotalNumber(actionType))
         PossionPara(actionMetaData.fullyQualifiedName(false).toString) = (optimalLambda, idleTimeTotalNumber(actionType))
 
-        //依据optimal lambda，得到pre-lod和off-load值。
-        // ...
-        //省略一部分代码
+
         //根据最优的lambda计算T1和T2
-        val P0: Double = 0.05 //这里赋值为你想要的P0
-        val P1: Double = 0.85 //这里赋值为你想要的P1
+        val P0: Double = 0.05 //P_load
+        val P1: Double = 0.85 //P_off-load
 
         val T1: Double = -math.log(1 - P0) / optimalLambda
         val T2: Double = -math.log(1 - P1) / optimalLambda
-        preLoadWindow = T1.toInt + 1 //toInt会向下取整
+        preLoadWindow = T1.toInt + 1
         offLoadWindow = T2.toInt
         Lambda = optimalLambda
 
@@ -329,7 +314,6 @@ object histogram{
       (preWarmWindow, keepAliveWindow, preLoadWindow, offLoadWindow,Lambda)
     }
     else{
-      //本来该用ARIMR算法来预测（auto-arimr）
       println("This invocation's idle time is Out-Of-Bound")
       (0,10,0,10,0)
     }
@@ -512,88 +496,40 @@ class ShardingContainerPoolBalancer(
     val actionName = action.name.toString
 
 
-
     /*
-    1. 遍历preLoadedAction哈希表中所有的<invokerId,allActionNamesString>键值对：
-       1.1 如果该invokerId对应的所有action都不包含actionName，则跳过
-       1.2 如果该invokerId对应的所有action包含actionName，则继续查找该invokerId对应的busyPoolSize哈希表，得到busyPoolSize
-    3. 在所有："包含actionName"的<invokerId,allActionNamesString>键值对中，选择busyPoolSize最小的invokerId，输出invokerId
-    4. schedule()之后的代码都可以复用
+    1. Iterate through all <invokerId, allActionNamesString> key-value pairs in the preLoadedAction hash table:
+       1.1 If all actions corresponding to that invokerId do not contain actionName, skip it
+       1.2 If all actions corresponding to that invokerId contain actionName, look up the corresponding busyPoolSize
+       in the busyPoolSize hash table, and retrieve busyPoolSize
+    3. Among all key-value pairs <invokerId, allActionNamesString> that "contain actionName," select the invokerId with the smallest busyPoolSize, and output the invokerId
+    4. Code following schedule() can be reused
      */
 
     var invokerId : String = "unknown"
 
-    /*
-    invokerIdsAndHostsTry match {
-      case Failure(e) =>
-        println(s"Failed to get invokerIdsAndHosts: ${e.getMessage}")
 
-      case Success(invokerIdsAndHosts) =>
-        if (invokerIdsAndHosts.isEmpty) {
-          println(s"No invokerId found for action $actionName")
-        } else {
-          val invokerHosts = invokerIdsAndHosts.values.toSet
-          val hostBusyPoolSizes = mutable.Map[String, Int]()
-
-          for (hostIp <- invokerHosts) {
-            val hostActionNamesTry = Try(redisClient.getActionNames(hostIp, "preLoadedAction"))
-            val busyPoolSizeTry = Try(redisClient.getBusyPoolSize(hostIp, "busyPoolSize"))
-
-            (hostActionNamesTry, busyPoolSizeTry) match {
-              case (Failure(_), _) | (_, Failure(_)) => // skip this hostIp if either operation failed
-              case (Success(hostActionNames), Success(busyPoolSize)) =>
-                if (hostActionNames.contains(actionName)) {
-                  hostBusyPoolSizes += (hostIp -> busyPoolSize)
-                }
-            }
-          }
-
-          if (hostBusyPoolSizes.isEmpty) {
-            println(s"No suitable invoker found for action $actionName")
-          } else {
-            val hostWithMinBusyPoolSize = hostBusyPoolSizes.minBy(_._2)._1
-            val invokerIdStrOpt = invokerIdsAndHosts.find(_._2 == hostWithMinBusyPoolSize).map(_._1)
-
-            invokerIdStrOpt match {
-              case Some(invokerIdStr) =>
-                invokerId = invokerIdStr
-
-              case None =>
-                println(s"No invokerId found for hostIp $hostWithMinBusyPoolSize")
-            }
-          }
-        }
-    }
-*/
-    // 获取Jedis池
     val jedisPool = redisClient.getPool
 
-    // 指定要查找的actionName
     val targetActionName = actionName
 
     try {
-      // 从Jedis池中获取资源
       val jedis = jedisPool.getResource
-
-      // 获取所有的<invokerId, allActionNamesString>键值对
       val allActionNamesMap = jedis.hgetAll("preLoadedAction").asScala
-
-      // 获取所有包含targetActionName的invokerIds
       val qualifiedInvokerIds = allActionNamesMap.filter { case (_, actionNamesString) =>
         actionNamesString.split(",").contains(targetActionName)
       }.keys
 
       if (qualifiedInvokerIds.nonEmpty) {
-        // 获取所有的<invokerId, busyPoolSize>键值对
+        // Get all <invokerId, busyPoolSize>
         val busyPoolSizeMap = jedis.hgetAll("busyPoolSize").asScala
 
-        // 获取所有包含targetActionName的<invokerId, busyPoolSize>键值对
+        // get all <invokerId, busyPoolSize> that contains targetActionName
         val qualifiedBusyPoolSizes = busyPoolSizeMap.filter { case (invokerId, _) =>
           qualifiedInvokerIds.contains(invokerId)
         }
 
         if (qualifiedBusyPoolSizes.nonEmpty) {
-          // 选择busyPoolSize最小的invokerId
+          // choose the invoker with the smallest busypool size
           val minBusyPoolSizeInvokerId = qualifiedBusyPoolSizes.minBy { case (_, busyPoolSize) =>
             busyPoolSize.toInt
           }._1
@@ -607,7 +543,6 @@ class ShardingContainerPoolBalancer(
         println("No invokers found with the target action name.")
       }
 
-      // 关闭Jedis资源
       jedis.close()
     } catch {
       case e: Exception => {
@@ -627,7 +562,6 @@ class ShardingContainerPoolBalancer(
         sendActivationToInvoker(messageProducer, msg, specificInvoker.id).map(_ => activationResult)
 
 
-      //如果没有找到，就还是shardingpool balancer
       case None =>
         logging.info(
           this,

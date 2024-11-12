@@ -103,7 +103,7 @@ object DockerContainer {
       name.map(n => Seq("--name", n)).getOrElse(Seq.empty) ++
       params
 
-    // Enable GPU support if it's RL training
+    // Enable GPU support if the invoker has CUDA GPU
 //    name match {
 //      case Some(n) =>
 //        if (n.contains("ptest")) {
@@ -112,6 +112,7 @@ object DockerContainer {
 //
 //      case None =>
 //    }
+
 
     val registryConfigUrl = registryConfig.map(_.url).getOrElse("")
     val imageToUse = image.merge.resolveImageName(Some(registryConfigUrl))

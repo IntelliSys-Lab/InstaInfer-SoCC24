@@ -1,125 +1,78 @@
-<!--
-#
-# Licensed to the Apache Software Foundation (ASF) under one or more
-# contributor license agreements.  See the NOTICE file distributed with
-# this work for additional information regarding copyright ownership.
-# The ASF licenses this file to You under the Apache License, Version 2.0
-# (the "License"); you may not use this file except in compliance with
-# the License.  You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
--->
+# InstaInfer-SoCC24
 
-# OpenWhisk
+This repo contains a demo implementation of our SoCC 2024 paper, [Pre-Warming is Not Enough: Accelerating Serverless Inference With Opportunistic Pre-Loading](https://intellisys.haow.us/assets/pdf/yifan-socc24.pdf)
 
-[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0)
-[![Join Slack](https://img.shields.io/badge/join-slack-9B69A0.svg)](https://openwhisk-team.slack.com/)
-[![Twitter](https://img.shields.io/twitter/follow/openwhisk.svg?style=social&logo=twitter)](https://twitter.com/intent/follow?screen_name=openwhisk)
+---
 
-[![Unit Tests](https://github.com/apache/openwhisk/actions/workflows/1-unit.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/1-unit.yaml)
-[![System Tests](https://github.com/apache/openwhisk/actions/workflows/2-system.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/2-system.yaml)
-[![MultiRuntime Tests](https://github.com/apache/openwhisk/actions/workflows/3-multi-runtime.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/3-multi-runtime.yaml)
-[![Standalone Tests](https://github.com/apache/openwhisk/actions/workflows/4-standalone.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/4-standalone.yaml)
-[![Scheduler Tests](https://github.com/apache/openwhisk/actions/workflows/5-scheduler.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/5-scheduler.yaml)
-[![Performance Tests](https://github.com/apache/openwhisk/actions/workflows/6-performance.yaml/badge.svg)](https://github.com/apache/openwhisk/actions/workflows/6-performance.yaml)
-[![codecov](https://codecov.io/gh/apache/openwhisk/branch/master/graph/badge.svg)](https://codecov.io/gh/apache/openwhisk)
+> Serverless computing has rapidly prospered as a new cloud computing diagram with agile scalability, pay-as-you-go pricing, and ease-to-use features for Machine Learning (ML) inference tasks. Users package their ML code into lightweight serverless functions and execute them using containers. Unfortunately, a notorious problem, called cold-starts, hinders serverless computing from providing low-latency function executions. To mitigate cold-starts, pre-warming, which keeps containers warm predictively, has been widely accepted by academia and industry. However, pre-warming fails to eliminate the unique latency incurred by loading ML artifacts. We observed that for ML inference functions, the loading of libraries and models takes significantly more time than container warming. Consequently, pre-warming alone is not enough to mitigate the ML inference function's cold-starts.
+>
 
-OpenWhisk is a serverless functions platform for building cloud applications.
-OpenWhisk offers a rich programming model for creating serverless APIs from functions,
-composing functions into serverless workflows, and connecting events to functions using rules and triggers.
-Learn more at [http://openwhisk.apache.org](http://openwhisk.apache.org).
+> This paper introduces InstaInfer, an opportunistic pre-loading technique to achieve instant inference by eliminating the latency associated with loading ML artifacts, thereby achieving minimal time cost in function execution. InstaInfer fully utilizes the memory of warmed containers to pre-load the function's libraries and model, striking a balance between maximum acceleration and resource wastage. We design InstaInfer to be transparent to providers and compatible with existing pre-warming solutions. Experiments on OpenWhisk with real-world workloads show that InstaInfer reduces up to 93% loading latency and achieves up to 8 × speedup compared to state-of-the-art pre-warming solutions.
+>
 
-* [Quick Start](#quick-start) (Deploy and Use OpenWhisk on your machine)
-* [Deploy to Kubernetes](#deploy-to-kubernetes) (For development and production)
-* For project contributors and Docker deployments:
-  * [Deploy to Docker for Mac](./tools/macos/README.md)
-  * [Deploy to Docker for Ubuntu](./tools/ubuntu-setup/README.md)
-* [Learn Concepts and Commands](#learn-concepts-and-commands)
-* [OpenWhisk Community and Support](#openwhisk-community-and-support)
-* [Project Repository Structure](#project-repository-structure)
+---
 
-### Quick Start
+InstaInfer is built atop [Apache OpenWhisk](https://github.com/apache/openwhisk). We describe how to build and deploy InstaInfer from scratch for this demo.
 
-The easiest way to start using OpenWhisk is to install the "Standalone" OpenWhisk stack.
-This is a full-featured OpenWhisk stack running as a Java process for convenience.
-Serverless functions run within Docker containers. You will need [Docker](https://docs.docker.com/install),
-[Java](https://java.com/en/download/help/download_options.xml) and [Node.js](https://nodejs.org) available on your machine.
+## Build From Scratch
 
-To get started:
-```
-git clone https://github.com/apache/openwhisk.git
-cd openwhisk
-./gradlew core:standalone:bootRun
-```
+### Hardware Prerequisite
 
-- When the OpenWhisk stack is up, it will open your browser to a functions [Playground](./docs/images/playground-ui.png),
-typically served from http://localhost:3232. The Playground allows you create and run functions directly from your browser.
+- Operating systems and versions: Ubuntu 22.04
+- Resource requirement
+  - CPU: >= 8 cores
+  - Memory: >= 15 GB
+  - Disk: >= 40 GB
+  - Network: no requirement since it's a single-node deployment
 
-- To make use of all OpenWhisk features, you will need the OpenWhisk command line tool called
-`wsk` which you can download from https://s.apache.org/openwhisk-cli-download.
-Please refer to the [CLI configuration](./docs/cli.md) for additional details. Typically you
-configure the CLI for Standalone OpenWhisk as follows:
-```
-wsk property set \
-  --apihost 'http://localhost:3233' \
-  --auth '23bc46b1-71f6-4ed5-8c54-816aa4f8c502:123zO3xZCLrMN6v2BKK1dXYFpXlPkccOFqm12CdAsMgRU4VrNZ9lyGVCGuMDGIwP'
-```
+### Deployment and Run Demo
 
-- Standalone OpenWhisk can be configured to deploy additional capabilities when that is desirable.
-Additional resources are available [here](./core/standalone/README.md).
+This demo hosts all InstaInfer’s components on a single node.
 
-### Deploy to Kubernetes
+**Instruction**
 
-OpenWhisk can also be installed on a Kubernetes cluster. You can use
-a managed Kubernetes cluster provisioned from a public cloud provider
-(e.g., AKS, EKS, IKS, GKE), or a cluster you manage yourself.
-Additionally for local development, OpenWhisk is compatible with Minikube,
-and Kubernetes for Mac using the support built into Docker 18.06 (or higher).
-
-To get started:
+1. Download the github repo.
 
 ```
-git clone https://github.com/apache/openwhisk-deploy-kube.git
+git clone <https://github.com/IntelliSys-Lab/InstaInfer-SoCC24>
 ```
 
-Then follow the instructions in the [OpenWhisk on Kubernetes README.md](https://github.com/apache/openwhisk-deploy-kube/blob/master/README.md).
+2. Set up OpenWhisk Environment.
 
-### Learn Concepts and Commands
+```
+cd ~/InstaInfer-SoCC24/tools/ubuntu-setup
+sudo ./all.sh
+```
 
-Browse the [documentation](docs/) to learn more. Here are some topics you may be
-interested in:
+3. Deploy InstaInfer. This could take quite a while due to building Docker images from scratch. The recommended shell is Bash.
 
-- [System overview](docs/about.md)
-- [Getting Started](docs/README.md)
-- [Create and invoke actions](docs/actions.md)
-- [Create triggers and rules](docs/triggers_rules.md)
-- [Use and create packages](docs/packages.md)
-- [Browse and use the catalog](docs/catalog.md)
-- [OpenWhisk system details](docs/reference.md)
-- [Implementing feeds](docs/feeds.md)
-- [Developing a runtime for a new language](docs/actions-actionloop.md)
+```
+cd ~/InstaInfer-SoCC24
+sudo ./setup.sh
+```
 
-### OpenWhisk Community and Support
+4. Run InstaInfer’s demo. The demo experiment runs a 5-minute workload from Azure Trace.
 
-Report bugs, ask questions and request features [here on GitHub](../../issues).
+```bash
+cd ~/InstaInfer-SoCC24/demo
+python3 Excute_from_trace_5min.py
+```
 
-You can also join the OpenWhisk Team on Slack [https://openwhisk-team.slack.com](https://openwhisk-team.slack.com) and chat with developers. To get access to our public Slack team, request an invite [https://openwhisk.apache.org/slack.html](https://openwhisk.apache.org/slack.html).
+## Experimental Results and OpenWhisk Logs
 
-### Project Repository Structure
+After executing `Excute_from_trace_5min.py`, you may use the [wsk-cli](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/blob/master/demo/wsk) to check the results of function executions:
 
-The OpenWhisk system is built from a [number of components](docs/dev/modules.md).  The picture below groups the components by their GitHub repos. Please open issues for a component against the appropriate repo (if in doubt just open against the main openwhisk repo).
+```
+wsk -i activation list
 
-![component/repo mapping](docs/images/components_to_repos.png)
+```
 
-### What happens on an invocation?
+Detailed experimental results are collected as `output.log` file in  `InstaInfer-SoCC24/demo`. The result includes function end-to-end and startup latency, invocation startup types, timelines, and whether pre-loaded. Note that `~/InstaInfer-SoCC24/demo/output.log` is not present in the initial repo. It will only be generated after running an experiment. OpenWhisk system logs can be found under `/var/tmp/wsklogs`.
 
-This diagram depicts the steps which take place within Openwhisk when an action is invoked by the user:
+## Workloads
 
-![component/repo mapping](docs/images/Openwhisk-flow-diagram.png)
+We provide the codebase of [20 serverless applications](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/tree/master/applications) used in our evaluation. However, due to hardware and time limitations, we only provide a simple [demo invocation trace](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/tree/master/demo/azurefunctions-dataset2019) for the demo experiment.
+
+## Distributed InstaInfer
+
+The steps of deploying a distributed InstaInfer are basically the same as deploying a distributed OpenWhisk cluster. For deploying a distributed InstaInfer, please refer to the README of [Apache OpenWhisk](https://github.com/apache/openwhisk) and [Ansible](https://github.com/apache/openwhisk/tree/master/ansible).

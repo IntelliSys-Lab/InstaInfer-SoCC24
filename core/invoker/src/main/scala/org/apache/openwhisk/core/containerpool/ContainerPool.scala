@@ -18,7 +18,6 @@
 package org.apache.openwhisk.core.containerpool
 
 import akka.actor.{Actor, ActorRef, ActorRefFactory, Props}
-import akka.event.Logging.{ErrorLevel, InfoLevel}
 import org.apache.openwhisk.common.{Logging, LoggingMarkers, MetricEmitter, TransactionId}
 import org.apache.openwhisk.core.connector.MessageFeed
 import org.apache.openwhisk.core.containerpool.docker.ProcessRunner
@@ -32,7 +31,7 @@ import scala.collection.immutable
 import scala.collection.mutable
 import scala.collection.mutable.PriorityQueue
 import scala.concurrent.duration._
-import scala.util.{Failure, Random, Success, Try}
+import scala.util.{ Random, Try}
 
 //新添加的
 import scala.concurrent.Future
@@ -51,7 +50,10 @@ case object EmitMetrics
 
 case object AdjustPrewarmedContainer
 
-//构建一个Map，用来存储每个Action的Window信息
+/*Use WindowMap to store each function's pre-warm and keep-alive time (from pre-warming method like
+Histogram. And store each function's pre-load and off-load time.
+These data are passed from SharingPoolLoadBalancer.
+ */
 case object WindowMap {
   var MAP = scala.collection.mutable.Map("ContainerName" -> (0,0,0,0))
 
@@ -66,14 +68,7 @@ case object WindowMap {
 }
 
 
-//判断是否需要新建一个容器
-case object NumofPre {
-  var PreMAP = scala.collection.mutable.Map("ActionName" -> (0,0))
-  var actionName = "xx"
-}
-
-
-//创建一个ModelTable，每个元素为一个ModelData
+//For each type of inference function, build a class to store its model size, loading latency, request arrival probability.
 case class ModelData(
                       actionName: String,
                       modelName: String,
@@ -124,23 +119,8 @@ class ModelTable {
     }
   }
 
-  //输入Window，更新modelArrivalProbability和expectedSavedLatency
-  def updateModelValue(actionName: String, window: Double): Unit = {
-    models = models.map { model =>
-      if (model.actionName == actionName) {
-        val newModelArrivalProbability = 1 - exp(-model.lamda * window)
-        val newExpectedSavedLatency = newModelArrivalProbability * model.modelLoadingLatency
-        model.copy(
-          modelArrivalProbability = newModelArrivalProbability,
-          expectedSavedLatency = newExpectedSavedLatency
-        )
-      } else {
-        model
-      }
-    }
-  }
 
-  //根据window，在bin-packing前，更新所有model的table
+  //update the inference function's arrival probability to the newest.
   def updateAllModelParameters(window: Double): Unit = {
     models = models.map { model =>
       val newModelArrivalProbability = 1 - exp(-model.lamda * window)
@@ -205,23 +185,24 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   // Key is ColdStartKey, value is the number of cold Start in minute
   var coldStartCount = immutable.Map.empty[ColdStartKey, Int]
 
-  //在这里，prewarm容器准备好了，让它执行一个pre-load指令。
   val execCmd: Seq[String] = Seq("/usr/bin/docker")
 
-  //用来为pre-warm的容器提供Run信息，让它成为warmed容器，而不是stem-cell容器
+  /*Used to provide "Run" information for the pre-warm container,
+    making it a warmed container instead of a stem-cell container
+   */
   var userPrewarmRun = immutable.Map.empty[ExecutableWhiskAction, Run]
 
-  //创建一个pool，来存储所有可用来bin-packing的container
+  // Create a pool to store all containers available for bin-packing
   var sharedPool = immutable.Map.empty[ActorRef, ContainerData]
 
-  //创建pagurus所需的pool，存放zygote容器
+  // Create the pool required by pagurus (The paper <Help rather than recycle> to store the "zygote" container
   var zygotePool = immutable.Map.empty[ActorRef, ContainerData]
 
-  //不能直接用ContainerData，因为会存储很多Id相同，只有lastUsed不同的容器！
+  //The Pre-load table: show the pre-loaded function on each container.
   val PreloadTable_New: mutable.Map[ContainerId, List[ModelData]] = mutable.Map.empty
 
 
-  //创建一个model Table
+  //create a modelTable to store all inference functions's ModelData
   val modelTable = new ModelTable()
 
   var model1 = ModelData(
@@ -393,14 +374,12 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
         val kind = r.action.exec.kind
         val memory = r.action.limits.memory.megabytes.MB
 
-        //把需要的参数定义好
         var preWarmWindow = r.msg.preWarmParameter
         var keepAliveWindow = r.msg.keepAliveParameter
         var actionName = r.action.fullyQualifiedName(false)
         WindowMap.getWindow(r)
 
-        // Update activation message for prewarming only once，用来为pre-warm的容器提供Run信息，让它成为warmed容器，而不是stem-cell容器
-        //每个action，只更新一次就够了，因为这个run job仅仅是用来创建一个prewarm容器，不用来
+        // Update activation message for prewarming only once，provide "RUN" info for pre-warm container to make it be warmed one instaed of stem-cell one
         val action = r.action
         userPrewarmRun.get(action) match {
           case Some(j) =>
@@ -410,19 +389,12 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
           }
         }
 
-        //然后：1. 创建一个class，当proxy转移到ready/runcomplete阶段时，向pool发送消息，证明已经完成run
-        //     2. 更新WindowMap的向量
-        //     3. 在XX分钟后，重新预热一个容器（启动prewarm）
-
-
-        //createdContainer的逻辑顺序是warmed -> prewarmed -> cold。不用修改。
-
         val createdContainer =
         // Schedule a job to a warm container
           ContainerPool
             .schedule(r.action, r.msg.user.namespace.name, freePool,modelTable, PreloadTable_New)
             .map(container => (container, container._2.initingState)) //warmed, warming, and warmingCold always know their state   initingState在ContainerProxy中可以找到，warming表示prewarm的容器
-            .orElse(   //如果.map(container => (container, container._2.initingState)) 有值，就不管后面了；若值为NULL，则用orElse的值代替前面。
+            .orElse(
               // There was no warm/warming/warmingCold container. Try to take a prewarm container or a cold container.
               // When take prewarm container, has no need to judge whether user memory is enough
               takePrewarmContainer(r.action)
@@ -454,9 +426,9 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                     }))
 
         createdContainer match {
-          case Some(((actor, data), containerState)) =>    //Some:如果key有对应的value，就返回value，不然就返回Null
+          case Some(((actor, data), containerState)) =>
             //increment active count before storing in pool map
-            val newData = data.nextRun(r)    //更新Container的状态
+            val newData = data.nextRun(r)    // update Container state
             val container = newData.getContainer
 
             if (newData.activeActivationCount < 1) {
@@ -529,7 +501,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       }
 
 
-    // Container is free to take more work  (仅对应：刚启动一个idle container)
+    // Container is free to take more work  (Just start a new idle container)
     case NeedWork(warmData: WarmedData) =>
       val oldData = freePool.get(sender()).getOrElse(busyPool(sender()))
       val newData =
@@ -541,19 +513,21 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
         //remove from busy pool (may already not be there), put back into free pool (to update activation counts)
         freePool = freePool + (sender() -> newData)
 
-        //如果是从Zygote接收Run Job，也会在RunComplete后发送NeedWork信号，转为Private Idle container。因此要把它从sharedPool中去掉
+        //If we receive the Run Job from Zygote, it will also send the NeedWork signal after RunComplete and
+        // turn it into a Private Idle container. Therefore, we need to remove it from the sharedPool
         if (sharedPool.contains(sender())) {
           sharedPool = sharedPool - sender()
         }
-        //同时要把它从PreLoadTable上去掉
+
+        //Remove the container from PreLoadTable
         val containerA = warmData.getContainer.get.containerId
         if (PreloadTable_New.contains(containerA)) {
           PreloadTable_New -= containerA
         }
 
         //update redis
+        logging.info(this, s"In Need_Work, the preload table is ${PreloadTable_New}")
         redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-        redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
 
 
@@ -585,11 +559,12 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
         s"Pool received the NeedWork Message. Container:${newData.container}")
 
 
-      //仅针对custom image
+      //I name all inference functions "ptestXX". So this logic is to deal with inference function.
       if (newData.action.name.toString.contains("ptest")) {
         //仅仅pre-load newData.action.name对应的model。
         val containerId = newData.getContainer.get.containerId
         val model = modelTable.findModelByActionName(newData.action.name.toString).get
+        //Sent the pre-load signal to the container Proxy.
         SendPreLoadMessage(model, containerId)
         logging.info(
           this,
@@ -646,47 +621,35 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       if (newData.action.name.toString.contains("ptest")) {
         val model = modelTable.findModelByActionName(newData.action.name.toString).get
 
-        //【9.19更新：下面这段代码的意思是：当创建新容器时，
-        // 把该容器对应action的model从原来的container上卸载，然后放到新容器上】
-
-
-        //检查PreLoadTable，和modelTable对比，看是否有没load的model。有的话：依次load
+        //As there's an idle zygote container, we have room to pre-load more functions
         val modelTableModels = modelTable.getModels
         val preloadedModels = PreloadTable_New.values.flatten.toSet
         val notInPreloadTable: List[ModelData] = modelTableModels.filterNot(preloadedModels.contains)
 
-        logging.info(this, s"PreloadTable_New : ${PreloadTable_New}. (from NeedWork)")
-
         notInPreloadTable.foreach { modelData =>
           Future {
-            // 随机生成2到5秒的延迟时间
-            val delay = (3 + scala.util.Random.nextInt(5)).seconds
-            // 使用Future的sleep函数实现延迟
+            val delay = (0.1 + scala.util.Random.nextDouble() * 2.0).seconds
             Thread.sleep(delay.toMillis)
 
             logging.info(this, s"Assigining model: ${modelData.modelName}! (from NeedWork)")
-            //assignedModels_v1 = syncModelsAndPreload(assignedModels_v1,PreloadTable_New)
+
             if (sharedPool.isEmpty) {
               logging.info(this, s"SharedPool is empty!! (from NeedWork)")
             }
             else {
-              //不能直接让val containerA = SingleBinPacking()，因为可能返回的值为null
-              val containerA = SingleBinPacking(sharedPool, modelData, PreloadTable_New)
+              val containerA = BinPacking(sharedPool, modelData, PreloadTable_New)
               if (containerA != null) {
                 logging.info(
                   this,
                   s"SharedPool is not empty!! (from NeedWork). Chosen Container: ${containerA}")
                 val oldModelDataList: List[ModelData] = PreloadTable_New.getOrElse(containerA, List.empty[ModelData])
                 val newModelDataList: List[ModelData] = oldModelDataList :+ modelData
-                // 更新Map (以上两行已经处理了PreloadTable_New不包含containerA的情况了）
+
                 PreloadTable_New(containerA) = newModelDataList
                 logging.info(this, s"updated Table: ${PreloadTable_New}. (from NeedWork)")
-                //发送Load信号
                 SendPreLoadMessage(modelData, containerA)
-
                 //update redis
                 redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-                redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
               }
               else {
                 logging.info(
@@ -701,36 +664,28 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
           this,
           s" Started the pre-load process. ContainerID: ${newData.container.containerId}, data: ${newData}. ")
 
-
-        //把sharedPool中有，freePool中没有的元素删除（因为我们的sharedPool写的不完整，不能精准记录每个ptest容器的增删）
         sharedPool = sharedPool.filterKeys(key => freePool.contains(key))
 
-
-        //先根据window,更新modelTable
         val window = 1
         modelTable.updateAllModelParameters(window)
       }
 
 
     case StartRunMessage(data: WarmedData, whiskAction: ExecutableWhiskAction, lamda: Double) =>
-      //这条message证明：Container收到了一条Run Request (invocation)。对应Invocation arrives情况。
+      //The case that the Container receives a Run Request (invocation)
 
       if (whiskAction.name.toString.contains("ptest")) {
-        //根据Run的Action的name，更新它的lamda
         modelTable.updateModelLamda(whiskAction.name.toString, lamda)
 
         if (sharedPool.contains(sender())) {
           sharedPool = sharedPool - sender()
-          //把sharedPool中有，freePool中没有的元素删除（因为我们的sharedPool写的不完整，不能精准记录每个ptest容器的增删）
           sharedPool = sharedPool.filterKeys(key => freePool.contains(key))
         }
 
-        //更新全部model的数据
         val window = 1
         modelTable.updateAllModelParameters(window)
-        //assignedModels_v1 = multipleKnapsackBinPacking(modelTable, sharedPool, window)
 
-        //遍历PreloadTable，把action对应model对应的Container上，除了该model以外的全部model都放到别的容器上（不用在这里offload，proxy会自动执行）
+        //Re-load other functions in the container to other containers (as the container is going to execute the invoked function)
         val containerA = data.getContainer.get.containerId
         logging.info(this, s"Sender's containerId is: ${containerA}. (from StartRunMessage)")
 
@@ -741,7 +696,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
           case None => modelList
         }
 
-        //从PreloadTable_New删除sender() container
+
         if (PreloadTable_New.contains(containerA)) {
           PreloadTable_New -= containerA
         }
@@ -749,36 +704,30 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
         //update redis
         redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-        redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
 
-        //等1~3秒再执行下面的代码：
-        //并行地为每个元素创建一个延迟任务，这个操作是非阻塞的，所以它将立即返回Future。因此所有的任务都会在大约同一时间开始执行
+
         filteredModelList.foreach { modelData =>
           Future {
-            // 随机生成2到5秒的延迟时间
-            val delay = (8 + scala.util.Random.nextInt(5)).seconds
+            val delay = (0.1 + scala.util.Random.nextDouble() * 2.0).seconds
             // 使用Future的sleep函数实现延迟
             Thread.sleep(delay.toMillis)
 
             if (sharedPool.isEmpty) {
               logging.info(this, s"SharedPool is empty!! (from StartRunMessage)")
             } else {
-              val containerA = SingleBinPacking(sharedPool, modelData, PreloadTable_New)
+              val containerA = BinPacking(sharedPool, modelData, PreloadTable_New)
               logging.info(
                 this,
                 s"SharedPool is not empty!! (from StartRunMessage). Chosen Container: ${containerA}")
 
               val oldModelDataList: List[ModelData] = PreloadTable_New.getOrElse(containerA, List.empty[ModelData])
               val newModelDataList: List[ModelData] = oldModelDataList :+ modelData
-              // 更新Map (以上两行已经处理了PreloadTable_New不包含containerA的情况了）
-              PreloadTable_New(containerA) = newModelDataList
-              //发送Load信号
-              SendPreLoadMessage(modelData, containerA)
 
+              PreloadTable_New(containerA) = newModelDataList
+              SendPreLoadMessage(modelData, containerA)
               //update redis
               redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-              redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
             }
           }
         }
@@ -795,12 +744,12 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       logging.info(
         this,
         s" Pool has received a PreLoad message. actionName: ${data.action.name}. modelwindow:'${(preloadWindow, offloadWindow)} ")
-      //把该action对应的model放到现有container上：
+
       if (data.action.name.toString.contains("ptest")) {
         val model = modelTable.findModelByActionName(data.action.name.toString).get
-        //注意：findModelByActionName返回的是一个Option变量，因此，如果没有得到action的话，就会报错。
 
-        //在preloadWindow分钟后，才load该model
+
+        //load the function after "pre-load window" minutes
         val delayRun1 = Executors.newSingleThreadScheduledExecutor()
 
         val process = new Runnable {
@@ -818,22 +767,19 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
                 this, s"SharedPool is not empty, pre-load window is: ${preloadWindow}. offload window is: ${offloadWindow}.")
 
               //assignedModels_v1 = syncModelsAndPreload(assignedModels_v1,PreloadTable_New)
-              val containerID = SingleBinPacking(sharedPool, model, PreloadTable_New)
+              val containerID = BinPacking(sharedPool, model, PreloadTable_New)
               SendPreLoadMessage(model, containerID)
 
-              //更新PreloadTable_New
+
               val oldModelDataList: List[ModelData] = PreloadTable_New.getOrElse(containerID, List.empty[ModelData])
               val newModelDataList: List[ModelData] = if (!oldModelDataList.exists(_.modelName == model.modelName)) {
                 oldModelDataList :+ model
               } else {
                 oldModelDataList
               }
-              // 更新PreloadTable_New
               PreloadTable_New(containerID) = newModelDataList
-
               //update redis
               redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-              redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
               logging.info(
                 this,
@@ -841,7 +787,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
             }
           }
         }
-        //preloadWindow分钟之后，才load
         delayRun1.schedule(process, preloadWindow, TimeUnit.MINUTES) // 第二个参数为延时时间
       }
 
@@ -855,10 +800,8 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       val offloadTime = offloadWindow - keepAliveWindow
       if (data.action.name.toString.contains("ptest") & offloadTime > 0) {
 
-        // 先定义modelList
         var modelList: Option[List[ModelData]] = None
 
-        //先执行offload相关的logic，把sender从pool里面和modelTable里去掉
         if (freePool.contains(sender())) {
           val container_remove = freePool(sender()).getContainer.get.containerId
           if (PreloadTable_New.contains(container_remove)) {
@@ -868,7 +811,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
             //update redis
             redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-            redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
           }
         }
         // if container was in free pool, it may have been processing (but under capacity), so there is capacity to accept another job request
@@ -878,37 +820,30 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
         if (sharedPool.contains(sender())) {
           sharedPool = sharedPool - sender()
-          //把sharedPool中有，freePool中没有的元素删除（因为我们的sharedPool写的不完整，不能精准记录每个ptest容器的增删）
           sharedPool = sharedPool.filterKeys(key => freePool.contains(key))
         }
 
-        //为modellist上的每个model，用singlebinpacking找到container，并preload，并更新preloadtable [可复用]
         modelList.foreach(_.foreach { modelData =>
-          //assignedModels_v1 = syncModelsAndPreload(assignedModels_v1,PreloadTable_New)
           if (sharedPool.isEmpty) {
             logging.info(
               this,
               s"SharedPool is empty!! (from offloadSignal)")
           }
           else {
-            val containerA = SingleBinPacking(sharedPool, modelData, PreloadTable_New)
+            val containerA = BinPacking(sharedPool, modelData, PreloadTable_New)
             logging.info(
               this,
               s"SharedPool is not empty!! (from offloadSignal). Chosen Container: ${containerA}")
 
             val oldModelDataList: List[ModelData] = PreloadTable_New.getOrElse(containerA, List.empty[ModelData])
             val newModelDataList: List[ModelData] = oldModelDataList :+ modelData
-            // 更新Map (以上两行已经处理了PreloadTable_New不包含containerA的情况了）
-            PreloadTable_New(containerA) = newModelDataList
-            //发送Load信号
-            SendPreLoadMessage(modelData, containerA)
 
+            PreloadTable_New(containerA) = newModelDataList
+            SendPreLoadMessage(modelData, containerA)
             //update redis
             redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-            redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
 
-            //然后，在XX分钟后，如果sharedPool还有这个容器，且上面还有这个model，则offload
-            //val delayRun2 = Executors.newSingleThreadScheduledExecutor()
+            //Offload the function after "off-load window" minutes
             val executor1 = Executors.newSingleThreadScheduledExecutor()
             executor1.schedule(new Runnable {
               override def run() = {
@@ -927,7 +862,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
                     //update redis
                     redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-                    redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
                   } else {
                     logging.info(
                       this,
@@ -947,7 +881,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
     // Container got removed
     case ContainerRemoved(replacePrewarm) =>
-      //看PreloadTable里有没有这个sender() [PreloadTable里的Container肯定在freepool，不可能在busy pool]
       if (freePool.contains(sender())) {
         val container_remove = freePool(sender()).getContainer.get.containerId
         if (PreloadTable_New.contains(container_remove)) {
@@ -955,7 +888,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
           PreloadTable_New -= container_remove
           //update redis
           redisClient.storeActionNames(Instance.InvokerID,PreloadTable_New)
-          redisClient.storePreloadTable(Instance.InvokerID,PreloadTable_New)
         }
       }
 
@@ -974,10 +906,8 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
       if(sharedPool.contains(sender())){
         sharedPool = sharedPool - sender()
-        //把sharedPool中有，freePool中没有的元素删除（因为我们的sharedPool写的不完整，不能精准记录每个ptest容器的增删）
         sharedPool = sharedPool.filterKeys(key => freePool.contains(key))
 
-        //更新全部model的数据，pin-packing
         val window = 1
         modelTable.updateAllModelParameters(window)
       }
@@ -1132,37 +1062,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
 
 
-  /** Our Bin-Packing Policy. */
-
-  def multipleKnapsackBinPacking(
-                                  modelTable: ModelTable,
-                                  freePool: immutable.Map[ActorRef, ContainerData],
-                                  windowSize: Int
-                                ): Map[ContainerData, List[ModelData]] = {
-
-    val models = modelTable.getModels.sortBy(-_.modelSize)
-    val containers = freePool.values.toArray.sortBy(_.memoryLimit.size.toInt)
-    val remainingCapacity = mutable.Map[ContainerData, Int](freePool.values.toList.map(container => container -> 2047): _*)
-    val result = mutable.Map[ContainerData, List[ModelData]]()
-
-    for (model <- models) {
-      val foundContainer = containers.find(container => remainingCapacity(container) >= model.modelSize)
-      foundContainer match {
-        case Some(container) =>
-          if (result.contains(container)) {
-            result(container) ::= model
-          } else {
-            result(container) = List(model)
-          }
-          remainingCapacity(container) -= model.modelSize
-        case None =>
-        // No container can hold the model. Handle this case as needed.
-      }
-    }
-
-    result.toMap
-  }
-
 
 
   /** Create a Map with Container as the key and a List of assigned ModelData objects as the value. */
@@ -1189,94 +1088,11 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
   }
 
 
-  // Function to execute the pre-load command for each model in the given container
-  def executePreLoad(assignedModels: Map[ContainerData, List[ModelData]])(implicit transid: TransactionId): Future[Unit] = {
-    val containerFutures = assignedModels.map { case (container, models) =>
-      val preLoadFutures = models.map { model =>
-        val args = model.modelName match {
-          case "ResNet18" =>
-            //Seq("exec", container.getContainer.get.containerId.asString, "python", "preload1.py", "beach.jpg", "resnet18.pth", "&")
-            Seq("exec", container.getContainer.get.containerId.asString, "ls")
-          case "ResNet50" =>
-            Seq("exec", container.getContainer.get.containerId.asString, "python", "preload50.py", "beach.jpg", "resnet50.pth")
-          case "ResNet152" =>
-            Seq("exec", container.getContainer.get.containerId.asString, "ls")
-        }
-        poolRunCmd(args, 10.seconds).map(_ => ())
-      }
-      logging.info(this, s"Has executed, containerId: ${container.getContainer.get.containerId.asString}.")
-      Future.sequence(preLoadFutures).map(_ => ())
-    }
-    Future.sequence(containerFutures.toList).map(_ => ())
-  }
 
-
-  def executePreLoad_old(assignedModels: Map[ContainerData, List[ModelData]])(implicit transid: TransactionId): Future[Unit] = {
-    // Iterate through the assignedModels map and execute the pre-load command for each model in the container
-
-    val containerFutures = assignedModels.map { case (container, models) =>
-      val preLoadFutures = models.map { model =>
-        val args = Seq("exec", container.getContainer.get.containerId.asString, "python", s"preload${model.modelNameNumber}.py", "beach.jpg", "resnet18.pth", "&")
-        poolRunCmd(args, 10.seconds).map(_ => ())
-      }
-      logging.info(
-        this,
-        s" Has exeucted, containerId: ${container.getContainer.get.containerId.asString}. ")
-
-      //不知道这样get containerId对不对:
-      /*
-      在你的ContainerData抽象类的上下文中，getContainer方法预计在容器处于“已启动”状态时返回Some(container)
-      （即，容器已启动并准备好接受请求）。如果容器不在“已启动”状态（也许它还没有初始化，或者它处于“已停止”状态），那么方法应该返回None。
-
-      方法上方的注释提供了进一步的澄清。该方法在区分处理所有ContainerData实例的情况
-      （即，已启动和未启动的）与只处理ContainerStarted实例的情况时非常有用。如果你的逻辑只需要处理已经启动的容器，你可以使用此函数来忽略那些尚未启动的容器。
-       */
-
-      // Return a Future that completes when all the preLoadFutures complete
-      Future.sequence(preLoadFutures).map(_ => ())
-    }
-
-    // Wait for all the containerFutures to complete
-    Future.sequence(containerFutures.toList).map(_ => ())
-  }
-
-
-
-  //设计一个online bin packing 算法，把pre-load的model放到shared pool的一个容器里（放到剩余空间最大的容器 Worst-Fit）
-//  def SingleBinPacking(
-//                        freePool: immutable.Map[ActorRef, ContainerData],
-//                        model: ModelData,
-//                        assigned: mutable.Map[ContainerId, List[ModelData]]
-//                      ): ContainerId = {
-//
-//    val remainingCapacity = mutable.Map[ContainerId, Int](freePool.values.toList.map(container => container.getContainer.get.containerId -> 2047): _*)
-//
-//    for ((container, models) <- assigned) {
-//      val usedCapacity = models.map(_.modelSize).sum
-//      if (remainingCapacity.contains(container)) {
-//        remainingCapacity(container) -= usedCapacity
-//      } else {
-//        logging.error(this, s"PreLoadTable has a container that is not stored in sharedPool!.           PreLoadTable:${PreloadTable_New}.          SharedPool:${sharedPool}.  ")
-//      }
-//      // Handle the case when the container is not in remainingCapacity.
-//    }
-//
-//    val worstFitContainer = remainingCapacity.toArray.maxBy(_._2)._1
-//
-//    var targetcontainer = worstFitContainer
-//    if (remainingCapacity(worstFitContainer) >= model.modelSize && !assigned(worstFitContainer).exists(_.modelName == model.modelName)) {
-//      if (assigned.contains(worstFitContainer)) {
-//      }
-//    } else {
-//      // No container has enough remaining capacity for the model. Handle this case as needed.
-//      targetcontainer = null
-//    }
-//    targetcontainer
-//  }
 
   case class ModelWithContainer(model: ModelData, container: ContainerId)
 
-  def SingleBinPacking(
+  def BinPacking(
                         freePool: immutable.Map[ActorRef, ContainerData],
                         model: ModelData,
                         assigned: mutable.Map[ContainerId, List[ModelData]]
@@ -1298,8 +1114,7 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
 
     var targetcontainer: ContainerId = null
     var found: Boolean = false
-    //    println("remaining:")
-    //    println(remainingCapacity)
+
 
     for ((container, _) <- remainingCapacity.toSeq.sortBy(-_._2) if !found && !(assigned.get(container).exists(_.exists(_.modelName == model.modelName)))) {
       if (remainingCapacity(container) >= model.modelSize) {
@@ -1381,54 +1196,6 @@ class ContainerPool(childFactory: ActorRefFactory => ActorRef,
       }
     }
   }
-
-
-  /** Control a container to execute command */
-
-
-  //在这里控制docker exec
-  def poolRunCmd1(args1: Seq[String], timeout: Duration): Future[String] = {
-    val cmd = execCmd ++ args1
-    executeProcess(cmd, timeout).map(_ => "")
-  }
-
-  def Dockerexec(id: ContainerId)(implicit transid: TransactionId): Future[Unit] = {
-    //val timeouts = loadConfigOrThrow[RuncClientTimeouts](ConfigKeys.runcTimeouts)
-    val timeouts = 10.seconds
-    //poolRunCmd(Seq("exec", id.asString), timeouts.resume).map(_ => ())
-    poolRunCmd(Seq("exec", id.asString, "python", "preload1.py", "beach.jpg", "resnet18.pth"), timeouts).map(_ => ())
-  }
-
-  def DockerexecPS(id: ContainerId)(implicit transid: TransactionId): Future[Unit] = {
-    //val timeouts = loadConfigOrThrow[RuncClientTimeouts](ConfigKeys.runcTimeouts)
-    val timeouts = 10.seconds
-    //poolRunCmd(Seq("exec", id.asString), timeouts.resume).map(_ => ())
-    poolRunCmd(Seq("exec", id.asString, "ps", "-A"), timeouts).map(_ => ())
-  }
-
-
-  private def poolRunCmd(args: Seq[String], timeout: Duration)(implicit transid: TransactionId): Future[String] = {
-    val cmd = execCmd ++ args
-    val start = transid.started(
-      this,
-      LoggingMarkers.INVOKER_RUNC_CMD(args.head),
-      //对应的Logging：[RuncClient] running /usr/bin/docker-runc pause c34f17c584f4d66cfa33a12bb122c4bc2cfca96b5f1171bd3ce90b2f00048f78 (timeout: 10 seconds)
-      // [marker:invoker_runc.pause_start:75167302]
-      s"running ${cmd.mkString(" ")} (timeout: $timeout)",
-      logLevel = InfoLevel)
-    executeProcess(cmd, timeout).andThen {
-      case Success(_) => transid.finished(this, start, logLevel = InfoLevel)
-      case Failure(t) => transid.failed(this, start, t.getMessage, ErrorLevel)
-    }
-  }
-
-  def findPreLoadContainer_New(model: ModelData): Option[ContainerId] = {
-    PreloadTable_New.find {
-      case (containerData, modelDataList) => modelDataList.contains(model)
-    } map (_._1)
-  }
-
-
 
 
 
@@ -1555,28 +1322,6 @@ object ContainerPool {
    * @param idles a map of idle containers, awaiting work
    * @return a container if one found
    */
-  //  protected[containerpool] def schedule[A](action: ExecutableWhiskAction,
-  //                                           invocationNamespace: EntityName,
-  //                                           idles: Map[A, ContainerData]): Option[(A, ContainerData)] = {
-  //    idles
-  //      .find {
-  //        case (_, c @ WarmedData(_, `invocationNamespace`, `action`, _, _, _)) if c.hasCapacity() => true
-  //        case _                                                                                   => false
-  //      }
-  //      .orElse {
-  //        idles.find {
-  //          case (_, c @ WarmingData(_, `invocationNamespace`, `action`, _, _)) if c.hasCapacity() => true
-  //          case _                                                                                 => false
-  //        }
-  //      }
-  //      .orElse {
-  //        idles.find {
-  //          case (_, c @ WarmingColdData(`invocationNamespace`, `action`, _, _)) if c.hasCapacity() => true
-  //          case _                                                                                  => false
-  //        }
-  //      }
-  //  }
-
   protected[containerpool] def schedule[A](action: ExecutableWhiskAction,
                                            invocationNamespace: EntityName,
                                            idles: Map[A, ContainerData],
@@ -1612,78 +1357,6 @@ object ContainerPool {
       }
     }
   }
-
-
-  //
-  //  protected[containerpool] def schedule[A](action: ExecutableWhiskAction,
-  //                                           invocationNamespace: EntityName,
-  //                                           idles: Map[A, ContainerData],
-  //                                           modelTable: ModelTable,
-  //                                           freePool: immutable.Map[ActorRef, ContainerData],
-  //                                           windowSize: Int): Option[(A, ContainerData)] = {
-  //
-  //
-  //    val assignedModels = multipleKnapsackBinPacking2(modelTable, freePool,windowSize)
-  //
-  //    assignedModels.find {
-  //      case (container, models) if models.exists(_.actionName == action.name.toString) => true
-  //      case _ => false
-  //    }
-  //      .flatMap { case (container, _) =>
-  //        idles.find {
-  //          case (a, c) if c == container => true
-  //          case _ => false
-  //        }
-  //      }
-  //      .orElse {
-  //        idles.find {
-  //          case (_, c@WarmedData(_, `invocationNamespace`, `action`, _, _, _)) if c.hasCapacity() => true
-  //          case _ => false
-  //        }
-  //      }
-  //      .orElse {
-  //        idles.find {
-  //          case (_, c@WarmingData(_, `invocationNamespace`, `action`, _, _)) if c.hasCapacity() => true
-  //          case _ => false
-  //        }
-  //      }
-  //      .orElse {
-  //        idles.find {
-  //          case (_, c@WarmingColdData(`invocationNamespace`, `action`, _, _)) if c.hasCapacity() => true
-  //          case _ => false
-  //        }
-  //      }
-  //  }
-
-  def multipleKnapsackBinPacking2(
-                                   modelTable: ModelTable,
-                                   freePool: immutable.Map[ActorRef, ContainerData],
-                                   windowSize: Int
-                                 ): Map[ContainerData, List[ModelData]] = {
-
-    val models = modelTable.getModels.sortBy(-_.modelSize)
-    val containers = freePool.values.toArray.sortBy(_.memoryLimit.size.toInt)
-    val remainingCapacity = mutable.Map[ContainerData, Int](freePool.values.toList.map(container => container -> 2047): _*)
-    val result = mutable.Map[ContainerData, List[ModelData]]()
-
-    for (model <- models) {
-      val foundContainer = containers.find(container => remainingCapacity(container) >= model.modelSize)
-      foundContainer match {
-        case Some(container) =>
-          if (result.contains(container)) {
-            result(container) ::= model
-          } else {
-            result(container) = List(model)
-          }
-          remainingCapacity(container) -= model.modelSize
-        case None =>
-        // No container can hold the model. Handle this case as needed.
-      }
-    }
-
-    result.toMap
-  }
-
 
 
   /**

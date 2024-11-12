@@ -61,3 +61,10 @@ else
     echo "--- WARNING -------------------------------------------------"
     /bin/bash "$SCRIPTDIR/docker-xenial.sh"
 fi
+
+
+
+sudo groupadd docker
+sudo usermod -aG docker $USER		#$USER是系统变量，直接使用该语句即可
+newgrp docker
+

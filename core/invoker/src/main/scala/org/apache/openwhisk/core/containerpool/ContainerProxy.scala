@@ -213,11 +213,11 @@ case class PreWarmMessage(whiskAction: ExecutableWhiskAction)
 case class PreLoadMessage(data:WarmedData)
 case class StartRunMessage(data:WarmedData,whiskAction: ExecutableWhiskAction,lamda:Double)
 case class OffLoadSignal(data: WarmedData)
-//pagurus添加的
+//Used for Pagurus
 case class ContainerIdle(data: ContainerData)
 case class RemoveZygote(data: ContainerData)
 
-//用来几乎invokerId
+//Recoed InvokerID
 case object Instance {
   var InvokerID = new String
 }
@@ -316,15 +316,15 @@ class ContainerProxy(factory: (TransactionId,
         poolConfig.cpuLimit(job.memoryLimit),
         None)
         .map(container =>
-          PreWarmCompleted(PreWarmedData(container, job.exec.kind, job.memoryLimit, expires = job.ttl.map(_.fromNow)))) //这个很重要，fromNow相当于deadline，从现在开始计时，XX分钟后失效（值为0）
-        .pipeTo(self)                                                                                                   //相当于，从现在开始计时，每次调用ttl，都会得到：距离ddl结束还有XX秒
+          PreWarmCompleted(PreWarmedData(container, job.exec.kind, job.memoryLimit, expires = job.ttl.map(_.fromNow))))
+        .pipeTo(self)
       logging.info(
         this,
         s" ttl: ${job.ttl}.")
       goto(Starting)
 
 
-    // Prewarm a user container 需要修改。
+    // Prewarm a user container
     case Event(job: CreateWarmedContainer, _) =>
       implicit val transid = TransactionId.invokerWarmup
       // create a new container
@@ -409,18 +409,18 @@ class ContainerProxy(factory: (TransactionId,
   }
 
   when(Starting) {
-    //让pre-warm的容器进入keep-alive阶段 (真正的pre-warm)
+    //make the pre-warmed container go into keep-alive state
     case Event(data: WarmedData, _) =>
       context.parent ! NeedWork(data) //给pool发消息，说明prewarm完成，此时，pool认为现在多了一个warmed container。
       logging.info(
         this,
         s" Creating a (pre)warmed container. ContainerID: ${data.container.containerId} .Data Kind:${data.action.name}")
 
-      goto(RunningToUser) using data  //进入新状态
+      goto(RunningToUser) using data  //go into keep-alive
 
     // container creation failed
     case Event(_: FailureMessage, _) =>
-      context.parent ! ContainerRemoved(true)      //向containerPool发送消息，对应Receive的模式匹配
+      context.parent ! ContainerRemoved(true)
       stop()
 
     case _ => delay
@@ -461,20 +461,18 @@ class ContainerProxy(factory: (TransactionId,
       logging.info(
         this,
         s" This Paused Container is turning to Zygote. ActionName: ${data.action.name}, ContainerID: ${data.container.containerId}. It has been kept for ${unusedTimeout} minutes")
-      //向pool发送信号，该容器变为zygote
+      //the container should be identified as "zygote"
       context.parent ! ContainerIdle(data)
       goto(Zygote) using data
   }
 
 
   when(Zygote, stateTimeout = unusedTimeout * 2) {
-    //在Zygote状态停留keep-alive*2分钟
-
     case Event(job: Run, data: WarmedData) =>
       implicit val transid = job.msg.transid
       activeCount += 1
 
-      //向pool发信息，更新lamda，更新model table （适用于热启动）
+      //receive an invocation
       context.parent ! StartRunMessage(data, job.action, job.msg.possionpara1_lambda)
 
       val newData = data.withResumeRun(job)
@@ -506,8 +504,7 @@ class ContainerProxy(factory: (TransactionId,
         this,
         s" This Zygote container is too old to alive. ActionName: ${data.action.name}, ContainerID: ${data.container.containerId}. It has been kept for ${unusedTimeout * 2} minutes")
 
-      //向pool发送信号，即将remove zygote
-      //context.parent ! RemoveZygote(data)
+      //off-load all pre-loaded functions to other containers
       context.parent ! OffLoadSignal(data)
 
       destroyContainer(data, false)
@@ -553,21 +550,14 @@ class ContainerProxy(factory: (TransactionId,
         this,
         s" This Container just sent the PreWarmMessage to the Pool. ActionName: ${data.action.name}, ContainerID: ${data.container.containerId}. Message: ${PreWarmMessage} ")
 
-      if (WindowMap.MAP.get(data.action.fullyQualifiedName(false).toString).get._1 != 0) { //要是pre-warm为0，就不销毁容器（也就不发送预热信号了）
-        //同时，发送一个PreLoadMessage
+      if (WindowMap.MAP.get(data.action.fullyQualifiedName(false).toString).get._1 != 0) {
         if (data.action.name.toString.contains("ptest")) {
           context.parent ! PreLoadMessage(data)
         }
       }
-      //goto(Ready) using newData  //说明RUN结束，且不需要执行新操作。
-      //不要去Ready了，让它直接成为Pre-Warm容器
+
       context.parent ! NeedWork(data)
       goto(RunningToUser) using newData
-
-//      if (requestWork(data) || activeCount > 0) {
-//        stay using newData
-//      } else {
-//      }
 
 
     case Event(job: Run, data: WarmedData)
@@ -577,7 +567,7 @@ class ContainerProxy(factory: (TransactionId,
       runBuffer = runBuffer.enqueue(job)
       stay()
 
-    //真正的run
+
     case Event(job: Run, data: WarmedData)
       if activeCount < data.action.limits.concurrency.maxConcurrent && !rescheduleJob => //if there was a delay, and not a failure on resume, skip the run
       activeCount += 1
@@ -813,6 +803,7 @@ class ContainerProxy(factory: (TransactionId,
   }
 
 
+  //Send the load signal to the Docker container's proxy
   def loadModelInContainer(container: Container, job: LoadModelSignal)(implicit tid: TransactionId): Unit = {
     logging.info(this, s"Proxy Start Loading action:${job.msg.action.qualifiedNameWithLeadingSlash.toJson} ")
     val actionTimeout = job.action.limits.timeout.duration
@@ -839,7 +830,7 @@ class ContainerProxy(factory: (TransactionId,
     // Only initialize iff we haven't yet warmed the container
     // Only initialize iff we haven't yet warmed the container
     val initialize = stateData match {
-      case data: WarmedData => //似乎，对于我们的warmed Container来说，并不需要init
+      case data: WarmedData =>
         Future.successful(None)
       case _ =>
         val owEnv = (authEnvironment ++ environment ++ Map(
@@ -870,7 +861,7 @@ class ContainerProxy(factory: (TransactionId,
 
         logging.error(this, s"parameters: ${parameters}, env: ${env.toJson.asJsObject}, actionTimeout: ${actionTimeout}")
 
-        container //核心是这里
+        container
           .load(
             parameters,
             env.toJson.asJsObject,
@@ -886,7 +877,7 @@ class ContainerProxy(factory: (TransactionId,
       }
   }
 
-
+  //Send the off-load signal to the Docker container's proxy
   def offloadModelInContainer(container: Container, job: OffLoadModelSignal)(implicit tid: TransactionId): Unit = {
     val actionTimeout = job.action.limits.timeout.duration
     val unlockedArgs =
@@ -912,7 +903,7 @@ class ContainerProxy(factory: (TransactionId,
     // Only initialize iff we haven't yet warmed the container
     // Only initialize iff we haven't yet warmed the container
     val initialize = stateData match {
-      case data: WarmedData => //似乎，对于我们的warmed Container来说，并不需要init
+      case data: WarmedData =>
         Future.successful(None)
       case _ =>
         val owEnv = (authEnvironment ++ environment ++ Map(
@@ -943,7 +934,7 @@ class ContainerProxy(factory: (TransactionId,
 
         logging.error(this, s"parameters: ${parameters}, env: ${env.toJson.asJsObject}, actionTimeout: ${actionTimeout}")
 
-        container //核心是这里
+        container
           .offload(
             parameters,
             env.toJson.asJsObject,

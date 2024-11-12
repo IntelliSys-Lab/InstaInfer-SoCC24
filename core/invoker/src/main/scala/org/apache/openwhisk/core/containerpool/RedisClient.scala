@@ -14,8 +14,6 @@ import org.apache.openwhisk.core.entity.InvokerInstanceId
 
 import org.json4s._
 import org.json4s.native.Serialization
-import org.json4s.native.Serialization.write
-import scala.util.Try
 
 
 
@@ -51,30 +49,6 @@ class RedisClient(
   }
 
 
-  // Store the entire preloadTable in Redis
-  def storePreloadTable(invokerId: String, preloadTable: mutable.Map[ContainerId, List[ModelData]]): Unit = {
-    Try {
-      val jedis = pool.getResource
-      val name: String = "preloadTable"
-
-      // Serialize the entire preloadTable to a JSON string
-      val preloadTableJson = write(preloadTable.map { case (containerId, models) =>
-        containerId.asString -> models
-      })
-
-      // Store the serialized JSON in Redis
-      jedis.hset(name, invokerId, preloadTableJson)
-      logging.info(this, s"Stored entire preloadTable for invokerId $invokerId")
-
-      jedis.close()
-    }.recover {
-      case e: Exception =>
-        logging.error(this, s"Error storing preloadTable for invokerId $invokerId: ${e.getMessage}")
-    }
-  }
-
-
-
 
   //存储pre-loaded function
   def storeActionNames(invokerId:String, preloadTable: mutable.Map[ContainerId, List[ModelData]]): Unit = {
@@ -98,7 +72,7 @@ class RedisClient(
       jedis.close()
     } catch {
       case e: Exception => {
-        logging.error(this, s"store action names error, exception ${e}, at ${Instant.now.toEpochMilli}")
+        logging.error(this, s"store action names error, exception ${e.printStackTrace()}, at ${Instant.now.toEpochMilli}")
       }
     }
   }
@@ -132,10 +106,10 @@ class RedisClient(
       val jedis = pool.getResource
       val name: String = "invokerId"
 
-      // 获取本机的IP地址
+      // get local IP
       val hostId = InetAddress.getLocalHost.getHostAddress
 
-      // 在Redis中存储busyPool的大小
+      // Store busyPool size
       jedis.hset(name, hostId, invokerId.toString)
       jedis.close()
 
@@ -147,17 +121,16 @@ class RedisClient(
   }
 
 
-  //得到actionName
+  //Get actionName
   def getActionNames(hostId: String, name: String): List[String] = {
     try {
       val jedis = pool.getResource
 
-      // 从Redis中获取所有的actionName字符串
+
       val allActionNamesString = jedis.hget(name, hostId)
 
       jedis.close()
 
-      // 将所有的actionName字符串分割成列表
       val allActionNames = allActionNamesString.split(",").toList
 
       allActionNames
@@ -171,17 +144,15 @@ class RedisClient(
 
 
 
-  //得到busyPool.size
+  //Get busyPool.size
   def getBusyPoolSize(hostId: String, name: String): Int = {
     try {
       val jedis = pool.getResource
 
-      // 从 Redis 中获取 busyPool.size 字符串
       val busyPoolSizeString = jedis.hget(name, hostId)
 
       jedis.close()
 
-      // 将 busyPool.size 字符串转换为整数
       val busyPoolSize = busyPoolSizeString.toInt
 
       busyPoolSize
@@ -192,9 +163,4 @@ class RedisClient(
       }
     }
   }
-
-
-
-
-
 }
