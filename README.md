@@ -14,9 +14,10 @@ This repo contains a demo implementation of our SoCC 2024 paper, [Pre-Warming is
 
 InstaInfer is built atop [Apache OpenWhisk](https://github.com/apache/openwhisk). We describe how to build and deploy InstaInfer from scratch for this demo.
 
+As InstaInfer is compatible with different pre-warming solutions, this repo shows InstaInfer + Pagurus, the pre-warming method of [Help Rather Than Recycle](https://www.usenix.org/conference/atc22/presentation/li-zijun-help).
+
 ## Build From Scratch
 
----
 ### Hardware Prerequisite
 
 - Operating systems and versions: Ubuntu 22.04
@@ -62,7 +63,6 @@ python3 Excute_from_trace_5min.py
 
 ## Experimental Results and OpenWhisk Logs
 
----
 After executing `Excute_from_trace_5min.py`, you may use the [wsk-cli](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/blob/master/demo/wsk) to check the results of function executions:
 
 ```
@@ -74,38 +74,9 @@ Detailed experimental results are collected as `output.log` file in  `InstaInfer
 
 ## Workloads
 
----
 We provide the codebase of [20 serverless applications](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/tree/master/applications) used in our evaluation. However, due to hardware and time limitations, we only provide a simple [demo invocation trace](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/tree/master/demo/azurefunctions-dataset2019) for the demo experiment.
 
 ## Distributed InstaInfer
 
----
 The steps of deploying a distributed InstaInfer are basically the same as deploying a distributed OpenWhisk cluster. For deploying a distributed InstaInfer, please refer to the README of [Apache OpenWhisk](https://github.com/apache/openwhisk) and [Ansible](https://github.com/apache/openwhisk/tree/master/ansible).
 
-## How to write your own inference functions and achieve pre-loading?
-
----
-
-In OpenWhisk, each Docker Container has a Runtime Proxy component that can interact with the OpenWhisk Invoker. To achieve pre-loading, we need to modify the container’s runtime proxy, which is written in GoLang.
-
-InstaInfer’s Pre-loading logic within the proxy in stored in [OpenWhisk-Runtime-Go](https://github.com/IntelliSys-Lab/openwhisk-runtime-go-sui). You can refer to this repo to build your own Proxy and add inference functions.
-
-## How to modify InstaInfer’s code?
-
----
-
-1. To modify the Proactive Pre-loader component, please modify:
-
-```bash
-InstaInfer-SoCC24/core/controller/src/main/scala/org/apache/openwhisk/core/loadBalancer/ShardingContainerPoolBalancer.scala
-```
-
-1. To modify the Pre-loading Scheduler, please modify:
-
-```bash
-InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerPool.scala
-
-InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerProxy.scala
-```
-
-1. To modify the Intra-Container Manager, Please modify the runtime proxy and build your own runtime image to create custom actions in OpenWhisk. For building custom runtime image, please refer to [How to build Runtime Image](https://github.com/IntelliSys-Lab/openwhisk-runtime-go-sui/tree/main).
