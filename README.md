@@ -86,7 +86,7 @@ The steps of deploying a distributed InstaInfer are basically the same as deploy
 
 In OpenWhisk, each Docker Container has a Runtime Proxy component that can interact with the OpenWhisk Invoker. To achieve pre-loading, we need to modify the container’s runtime proxy, which is written in GoLang.
 
-InstaInfer’s Pre-loading logic within the proxy in stored in [OpenWhisk-Runtime-Go](openwhisk-runtime-go). You can refer to this repo to build your own Proxy and add inference functions.
+InstaInfer’s Pre-loading logic within the proxy in stored in [OpenWhisk-Runtime-Go](openwhisk-runtime-go-master). You can refer to this repo to build your own Proxy and add inference functions.
 
 ## How to modify InstaInfer’s code?
 
@@ -104,4 +104,4 @@ InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containe
 InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerProxy.scala
 ```
 
-3. To modify the Intra-Container Manager, Please modify the runtime proxy and build your own runtime image to create custom actions in OpenWhisk. For building custom runtime image, please refer to [How to build Runtime Image](openwhisk-runtime-go%2Fbuild_image).
+3. To modify the Intra-Container Manager, Please modify the runtime proxy and build your own runtime image to create custom actions in OpenWhisk. For building custom runtime image, please refer to [How to build Runtime Image](openwhisk-runtime-go-master%2Fbuild_image).
