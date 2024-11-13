@@ -63,18 +63,17 @@ python3 Excute_from_trace_5min.py
 
 ## Experimental Results and OpenWhisk Logs
 
-After executing `Excute_from_trace_5min.py`, you may use the [wsk-cli](https://github.com/IntelliSys-Lab/RainbowCake-ASPLOS24/blob/master/demo/wsk) to check the results of function executions:
+After executing `Excute_from_trace_5min.py`, you may use the `wsk-cli` to check the results of function executions:
 
 ```
 wsk -i activation list
-
 ```
 
 Detailed experimental results are collected as `output.log` file in  `InstaInfer-SoCC24/demo`. The result includes function end-to-end and startup latency, invocation startup types, timelines, and whether pre-loaded. Note that `~/InstaInfer-SoCC24/demo/output.log` is not present in the initial repo. It will only be generated after running an experiment. OpenWhisk system logs can be found under `/var/tmp/wsklogs`.
 
 ## Workloads
 
-We use the industrial trace of [Azure Function](https://github.com/Azure/AzurePublicDataset?tab=readme-ov-file#azure-functions-traces) for evaluation. In detail, after downloading the Azure trace files, we use [Select_Trace_5min.py](https://github.com/IntelliSys-Lab/InstaInfer-SoCC24/blob/main/demo/Select_Trace_5min.py) to extract the trace that can be used to invoke InstaInfer. Then, run the [Execute_from_trace_5min.py](https://github.com/IntelliSys-Lab/InstaInfer-SoCC24/blob/main/demo/Excute_from_trace_5min.py) to start invoking.
+We use the industrial trace of [Azure Function](https://github.com/Azure/AzurePublicDataset?tab=readme-ov-file#azure-functions-traces) for evaluation. In detail, after downloading the Azure trace files, we use [Select_Trace_5min.py](demo%2FSelect_Trace_5min.py) to extract the trace that can be used to invoke InstaInfer. Then, run the [Excute_from_trace_5min.py](demo%2FExcute_from_trace_5min.py) to start invoking.
 
 
 ## Distributed InstaInfer
