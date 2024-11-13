@@ -1,0 +1,63 @@
+# Mac
+.DS_Store
+
+# goenv
+.go-version
+
+# Gradle
+.gradle/
+.gogradle/
+*.log
+tests/build/
+test.out
+
+# Dependencies
+vendor/
+
+# Go binary proxy
+common/proxy
+actionloop/proxy
+golang1.13/proxy
+golang1.15/proxy
+
+# Go test transient files
+openwhisk/_test/exec
+openwhisk/_test/exec.go
+openwhisk/_test/hi
+openwhisk/_test/hello_greeting
+openwhisk/_test/hello_message
+openwhisk/_test/*.zip
+openwhisk/_test/*.jar
+openwhisk/_test/compile/
+openwhisk/_test/output/
+openwhisk/_test/venv/
+openwhisk/action/
+openwhisk/compile/
+openwhisk/debug.test
+*.pyc
+*.env
+
+# Eclipse
+tests/bin/
+**/.project
+.settings/
+.classpath
+.cache-main
+.cache-tests
+
+# IntelliJ
+.idea
+*.class
+*.iml
+tests/out/
+
+# VSCode
+.vscode
+
+# examples
+exec
+*.done
+*.zip
+*_launcher_.go
+test.json
+pkg/
