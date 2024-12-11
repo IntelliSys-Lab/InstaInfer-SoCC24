@@ -42,14 +42,14 @@ git clone https://github.com/IntelliSys-Lab/InstaInfer-SoCC24.git
 2. Set up OpenWhisk Environment.
 
 ```
-cd ~/InstaInfer-SoCC24/tools/ubuntu-setup
+cd ~/InstaInfer/tools/ubuntu-setup
 sudo ./all.sh
 ```
 
 3. Deploy InstaInfer. This could take quite a while due to building Docker images from scratch. The recommended shell is Bash.
 
 ```
-cd ~/InstaInfer-SoCC24
+cd ~/InstaInfer
 sudo chmod +x setup.sh
 sudo ./setup.sh
 ```
@@ -57,7 +57,7 @@ sudo ./setup.sh
 4. Run InstaInfer’s demo. The demo experiment runs a 5-minute workload from Azure Trace.
 
 ```bash
-cd ~/InstaInfer-SoCC24/demo
+cd ~/InstaInfer/demo
 python3 Excute_from_trace_5min.py
 ```
 
@@ -69,7 +69,7 @@ After executing `Excute_from_trace_5min.py`, you may use the `wsk-cli` to check 
 wsk -i activation list
 ```
 
-Detailed experimental results are collected as `output.log` file in  `InstaInfer-SoCC24/demo`. The result includes function end-to-end and startup latency, invocation startup types, timelines, and whether pre-loaded. Note that `~/InstaInfer-SoCC24/demo/output.log` is not present in the initial repo. It will only be generated after running an experiment. OpenWhisk system logs can be found under `/var/tmp/wsklogs`.
+Detailed experimental results are collected as `output.log` file in  `InstaInfer/demo`. The result includes function end-to-end and startup latency, invocation startup types, timelines, and whether pre-loaded. Note that `~/InstaInfer/demo/output.log` is not present in the initial repo. It will only be generated after running an experiment. OpenWhisk system logs can be found under `/var/tmp/wsklogs`.
 
 ## Workloads
 
@@ -93,15 +93,15 @@ InstaInfer’s Pre-loading logic within the proxy in stored in [OpenWhisk-Runtim
 1. To modify the Proactive Pre-loader component, please modify:
 
 ```bash
-InstaInfer-SoCC24/core/controller/src/main/scala/org/apache/openwhisk/core/loadBalancer/ShardingContainerPoolBalancer.scala
+InstaInfer/core/controller/src/main/scala/org/apache/openwhisk/core/loadBalancer/ShardingContainerPoolBalancer.scala
 ```
 
 2. To modify the Pre-loading Scheduler, please modify:
 
 ```bash
-InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerPool.scala
+InstaInfer/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerPool.scala
 
-InstaInfer-SoCC24/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerProxy.scala
+InstaInfer/core/invoker/src/main/scala/org/apache/openwhisk/core/containerpool/ContainerProxy.scala
 ```
 
 3. To modify the Intra-Container Manager, Please modify the runtime proxy and build your own runtime image to create custom actions in OpenWhisk. For building custom runtime image, please refer to [How to build Runtime Image](openwhisk-runtime-go-master%2Fbuild_image).
