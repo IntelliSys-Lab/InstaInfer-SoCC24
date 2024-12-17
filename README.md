@@ -2,6 +2,20 @@
 
 This repo contains a demo implementation of our SoCC 2024 paper, [Pre-Warming is Not Enough: Accelerating Serverless Inference With Opportunistic Pre-Loading](https://intellisys.haow.us/assets/pdf/yifan-socc24.pdf)
 
+This work was performed when Yifan Sui was a remote intern student advised by Dr. Hao Wang at the IntelliSys Lab of Stevens Institute of Technology.
+
+Please refer to this work as
+
+```
+@inproceedings{sui2024pre,
+  title={Pre-Warming is Not Enough: Accelerating Serverless Inference With Opportunistic Pre-Loading},
+  author={Sui, Yifan and Yu, Hanfei and Hu, Yitao and Li, Jianxun and Wang, Hao},
+  booktitle={Proceedings of the 2024 ACM Symposium on Cloud Computing},
+  pages={178--195},
+  year={2024}
+}
+```
+
 ---
 
 > Serverless computing has rapidly prospered as a new cloud computing diagram with agile scalability, pay-as-you-go pricing, and ease-to-use features for Machine Learning (ML) inference tasks. Users package their ML code into lightweight serverless functions and execute them using containers. Unfortunately, a notorious problem, called cold-starts, hinders serverless computing from providing low-latency function executions. To mitigate cold-starts, pre-warming, which keeps containers warm predictively, has been widely accepted by academia and industry. However, pre-warming fails to eliminate the unique latency incurred by loading ML artifacts. We observed that for ML inference functions, the loading of libraries and models takes significantly more time than container warming. Consequently, pre-warming alone is not enough to mitigate the ML inference function's cold-starts.
