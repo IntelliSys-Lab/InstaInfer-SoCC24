@@ -84,7 +84,7 @@ def gen_traces1():
                                                  'CV': cv_interarrival_time}])], ignore_index=True)
 
     # Filter the DataFrame to find functions that meet the specified conditions
-    suitable_functions = stats[(stats['CV'] <= 4) & (stats['CV'] >= 1) & (stats['AverageInterarrivalTime'] >= 0.1) & (
+    suitable_functions = stats[(stats['CV'] <= 4) & (stats['CV'] >= 1) & (stats['AverageInterarrivalTime'] >= 0.01) & (
                 stats['AverageInterarrivalTime'] <=10)]
 
     if suitable_functions.empty:
